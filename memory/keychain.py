@@ -1,11 +1,43 @@
 """Keychain: save key to a file, then keys.set("name", file="path"); keys.name.use() to retrieve (use but no print)."""
-import json, os, hashlib, pathlib
+import json, os, hashlib, pathlib, base64
+
+from cryptography.fernet import Fernet, InvalidToken
 
 _PATH = pathlib.Path.home() / "ga_keychain.enc"
-_MASK = hashlib.sha256(f"{os.getlogin()}@ga_keychain".encode()).digest()
+_SALT_PATH = pathlib.Path.home() / "ga_keychain.salt"
 
-def _xor(data: bytes) -> bytes:
-    return bytes(b ^ _MASK[i % len(_MASK)] for i, b in enumerate(data))
+def _get_or_create_salt() -> bytes:
+    """Return a persistent per-installation random salt, creating it on first use."""
+    if _SALT_PATH.exists():
+        return _SALT_PATH.read_bytes()
+    salt = os.urandom(16)
+    _SALT_PATH.write_bytes(salt)
+    return salt
+
+def _derive_fernet_key() -> bytes:
+    """Derive a Fernet key from user identity + per-installation random salt using PBKDF2."""
+    try:
+        user = os.getlogin()
+    except OSError:
+        import getpass
+        user = getpass.getuser()
+    identity = f"{user}@ga_keychain".encode()
+    salt = _get_or_create_salt()
+    dk = hashlib.pbkdf2_hmac("sha256", identity, salt, iterations=200_000)
+    return base64.urlsafe_b64encode(dk)
+
+_FERNET = Fernet(_derive_fernet_key())
+
+# Legacy XOR used only for transparent one-time migration of old keychain files.
+def _xor_legacy(data: bytes) -> bytes:
+    try:
+        user = os.getlogin()
+    except OSError:
+        import getpass
+        user = getpass.getuser()
+    mask = hashlib.sha256(f"{user}@ga_keychain".encode()).digest()
+    return bytes(b ^ mask[i % len(mask)] for i, b in enumerate(data))
+
 
 class SecretStr:
     def __init__(self, name: str, val: str):
@@ -25,12 +57,20 @@ class _Keys:
     def __init__(self):
         self._d = {}
         if _PATH.exists():
+            raw = _PATH.read_bytes()
+            # Try Fernet (v2) decryption first; fall back to legacy XOR for migration.
             try:
-                self._d = json.loads(_xor(_PATH.read_bytes()))
-            except Exception as e:
-                print(f"[keychain] WARNING: failed to load {_PATH}: {e}")
-                print(f"[keychain] Starting with empty keychain. Old file kept as .bak")
-                _PATH.rename(_PATH.with_suffix('.enc.bak'))
+                self._d = json.loads(_FERNET.decrypt(raw))
+            except (InvalidToken, Exception):
+                try:
+                    self._d = json.loads(_xor_legacy(raw))
+                    # Re-encrypt with Fernet and overwrite the legacy file.
+                    _PATH.write_bytes(_FERNET.encrypt(json.dumps(self._d).encode()))
+                    print("[keychain] Migrated keychain to Fernet encryption.")
+                except Exception as e:
+                    print(f"[keychain] WARNING: failed to load {_PATH}: {e}")
+                    print(f"[keychain] Starting with empty keychain. Old file kept as .bak")
+                    _PATH.rename(_PATH.with_suffix('.enc.bak'))
     def __getattr__(self, k):
         if k.startswith('_'): raise AttributeError(k)
         if k not in self._d: raise KeyError(f"No secret: {k}")
@@ -38,7 +78,7 @@ class _Keys:
     def set(self, k, v=None, *, file=None):
         if file: v = pathlib.Path(file).read_text().strip()
         self._d[k] = v
-        _PATH.write_bytes(_xor(json.dumps(self._d).encode()))
+        _PATH.write_bytes(_FERNET.encrypt(json.dumps(self._d).encode()))
     def ls(self): return list(self._d.keys())
 
 keys = _Keys()
