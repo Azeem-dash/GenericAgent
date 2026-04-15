@@ -187,14 +187,21 @@ Problems:
 Anyone who obtained `~/ga_keychain.enc` (e.g. via the path-traversal vulnerability) could decrypt it immediately.
 
 **Fix applied:**  
-Replaced XOR with **Fernet** (`cryptography` library), which provides AES-128-CBC + HMAC-SHA256, a per-message IV, and authenticated encryption. The key is now derived via **PBKDF2-HMAC-SHA256 (200,000 iterations)**:
+Replaced XOR with **Fernet** (`cryptography` library), which provides AES-128-CBC + HMAC-SHA256, a per-message IV, and authenticated encryption. The key is now derived via **PBKDF2-HMAC-SHA256 (200,000 iterations)** with a **per-installation random salt** stored in `~/ga_keychain.salt`:
 
 ```python
 from cryptography.fernet import Fernet, InvalidToken
 
+def _get_or_create_salt() -> bytes:
+    if _SALT_PATH.exists():
+        return _SALT_PATH.read_bytes()
+    salt = os.urandom(16)
+    _SALT_PATH.write_bytes(salt)
+    return salt
+
 def _derive_fernet_key() -> bytes:
     identity = f"{user}@ga_keychain".encode()
-    salt = b"ga_keychain_v2_salt"
+    salt = _get_or_create_salt()  # 16 random bytes, unique per installation
     dk = hashlib.pbkdf2_hmac("sha256", identity, salt, iterations=200_000)
     return base64.urlsafe_b64encode(dk)
 ```

@@ -4,17 +4,25 @@ import json, os, hashlib, pathlib, base64
 from cryptography.fernet import Fernet, InvalidToken
 
 _PATH = pathlib.Path.home() / "ga_keychain.enc"
-_LEGACY_PATH = pathlib.Path.home() / "ga_keychain.enc"
+_SALT_PATH = pathlib.Path.home() / "ga_keychain.salt"
+
+def _get_or_create_salt() -> bytes:
+    """Return a persistent per-installation random salt, creating it on first use."""
+    if _SALT_PATH.exists():
+        return _SALT_PATH.read_bytes()
+    salt = os.urandom(16)
+    _SALT_PATH.write_bytes(salt)
+    return salt
 
 def _derive_fernet_key() -> bytes:
-    """Derive a Fernet key from machine + user identity using PBKDF2."""
+    """Derive a Fernet key from user identity + per-installation random salt using PBKDF2."""
     try:
         user = os.getlogin()
     except OSError:
         import getpass
         user = getpass.getuser()
     identity = f"{user}@ga_keychain".encode()
-    salt = b"ga_keychain_v2_salt"  # fixed salt; key strength comes from PBKDF2 stretching
+    salt = _get_or_create_salt()
     dk = hashlib.pbkdf2_hmac("sha256", identity, salt, iterations=200_000)
     return base64.urlsafe_b64encode(dk)
 
