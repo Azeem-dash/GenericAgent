@@ -1011,9 +1011,9 @@ def poll_agent_output(max_items=20):
 def _get_response_segments(text):
     return [p for p in re.split(r'(?=\*\*LLM Running \(Turn \d+\) \.\.\.\*\*)', text) if p.strip()] or [text]
 
-def render_message(role, content, ts='', unsafe_allow_html=True):
+def render_message(role, content, ts='', unsafe_allow_html=False):
     with st.chat_message(role):
-        if ts: st.markdown(f'<div class="msg-timestamp">{ts}</div>', unsafe_allow_html=True)
+        if ts: st.markdown(f'<div class="msg-timestamp">{html.escape(ts)}</div>', unsafe_allow_html=True)
         st.markdown(content, unsafe_allow_html=unsafe_allow_html)
 
 def finish_streaming_message():
@@ -1036,7 +1036,7 @@ def render_streaming_area():
     else: time.sleep(0.2)
     st.rerun()
 
-for msg in st.session_state.messages: render_message(msg["role"], msg["content"], ts=msg.get("time", ""), unsafe_allow_html=True)
+for msg in st.session_state.messages: render_message(msg["role"], msg["content"], ts=msg.get("time", ""), unsafe_allow_html=False)
 if st.session_state.streaming: render_streaming_area()
 if prompt := st.chat_input("请输入指令", disabled=st.session_state.streaming):
     st.session_state.messages.append({"role": "user", "content": prompt, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})

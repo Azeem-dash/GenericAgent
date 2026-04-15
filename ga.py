@@ -268,7 +268,11 @@ class GenericAgentHandler(BaseHandler):
 
     def _get_abs_path(self, path):
         if not path: return ""
-        return os.path.abspath(os.path.join(self.cwd, path))   
+        resolved = os.path.realpath(os.path.abspath(os.path.join(self.cwd, path)))
+        safe_root = os.path.realpath(os.path.abspath(self.cwd))
+        if not resolved.startswith(safe_root + os.sep) and resolved != safe_root:
+            raise PermissionError(f"Access denied: path '{path}' escapes the working directory.")
+        return resolved
 
     def _extract_code_block(self, response, code_type):
         matches = re.findall(rf"```{code_type}\n(.*?)\n```", response.content, re.DOTALL)
@@ -288,7 +292,7 @@ class GenericAgentHandler(BaseHandler):
         cwd = os.path.normpath(os.path.abspath(raw_path))
         code_cwd = os.path.normpath(self.cwd)
         if args.get("_inline_eval"):
-            ns = {'handler': self, 'parent': self.parent}
+            ns = {'handler': self, 'parent': self.parent, '__builtins__': {}}
             try: result = repr(eval(code, ns))
             except SyntaxError: exec(code, ns); result = ns.get('_r', 'OK')
             except Exception as e: result = f'Error: {e}'

@@ -180,6 +180,7 @@ def _dl_media(items):
                 ct = requests.get(f'{CDN_BASE}/download?encrypted_query_param={quote(eq)}', timeout=60).content
                 pt = AES.new(aes_key, AES.MODE_ECB).decrypt(ct); pt = pt[:-pt[-1]]
                 fname = sub.get('file_name') or f'{uuid.uuid4().hex[:8]}{ext or ".bin"}'
+                fname = os.path.basename(fname) or f'{uuid.uuid4().hex[:8]}{ext or ".bin"}'
                 p = os.path.join(_TEMP_DIR, fname); open(p, 'wb').write(pt)
                 paths.append(p); print(f'[WX] media saved: {fname}', file=sys.__stdout__)
             except Exception as e:

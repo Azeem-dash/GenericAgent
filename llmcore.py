@@ -1,6 +1,5 @@
 import os, json, re, time, requests, sys, threading, urllib3, base64, mimetypes, uuid
 from datetime import datetime
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 _RESP_CACHE_KEY = str(uuid.uuid4()) 
 
 def _load_mykeys():
@@ -14,7 +13,7 @@ def _load_mykeys():
 def __getattr__(name):
     if name in ('mykeys', 'proxies'):
         mk = _load_mykeys()
-        proxy = mk.get("proxy", 'http://127.0.0.1:2082')
+        proxy = mk.get("proxy", None)
         px = {"http": proxy, "https": proxy} if proxy else None
         globals().update(mykeys=mk, proxies=px)
         return globals()[name]
